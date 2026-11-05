@@ -15,14 +15,27 @@ Tested with Python 3.11.9. From the repository root:
 
 ```bash
 python -m pip install -r requirements.txt
-python MLE_Project.py
-python run_credit_risk_validation.py
+python main.py generate-data
+python main.py validate
 ```
 
-`MLE_Project.py` regenerates the 2,000-row `loan_applications.csv` synthetic
-dataset using seed 42. The validation runner writes its CSV outputs to
-`reports_credit_risk_validation/`. It performs repeated model searches and
-CPU-based TabPFN v2 fitting, so a full run can take a while.
+`main.py` is the project entry point; its default command is `validate`. It
+provides these workflows:
+
+| Command | Workflow |
+|---|---|
+| `python main.py generate-data` | Regenerate the 2,000-row synthetic input using seed 42 |
+| `python main.py validate` | Run the final multi-seed, multi-scenario comparison |
+| `python main.py baseline` | Run the original baseline model benchmark |
+| `python main.py tune` | Run the original cross-validation tuning experiment |
+| `python main.py woe` | Run WOE Logistic Regression |
+| `python main.py lightgbm` | Run LightGBM |
+| `python main.py tabpfn` | Run TabPFN v2 |
+| `python main.py qwen` / `python main.py alora` | Run optional Qwen experiments |
+
+`generate-data` regenerates `loan_applications.csv`; validation writes CSV
+outputs to `reports_credit_risk_validation/`. The full validation command runs
+repeated model searches and CPU-based TabPFN v2 fitting, so it can take a while.
 
 The experiment uses random seeds 42, 2025, and 2027. Four-fold stratified
 cross-validation selects configurations for tuned Logistic Regression, WOE
@@ -129,12 +142,43 @@ earlier exploratory runs are intentionally not part of the final submission;
 their scripts and summarized results remain available in the repository and
 this README.
 
+## Repository structure
+
+```text
+main.py                         Main workflow entry point
+data/                           Synthetic data generation
+common/                         Shared features, metrics, paths, scenarios
+models/
+  linear/                       Logistic Regression and WOE Logistic
+  trees/                        Decision Tree, Random Forest, XGBoost,
+                                CatBoost, LightGBM
+  foundation/                   TabPFN v2 and Qwen experiments
+experiments/
+  validation/                   Multi-seed scenario evaluation
+  tuning/                       Shared tuning utilities and experiments
+  baseline/                     Original model benchmark
+  linear/                       WOE Logistic experiment
+  trees/                        LightGBM experiment
+  foundation/                   TabPFN and Qwen experiments
+reports_credit_risk_validation/ Final experiment CSV deliverables
+```
+
+Run a standalone experiment module directly from the repository root if
+preferred, for example:
+
+```bash
+python -m experiments.baseline.run_catboost
+python -m experiments.tuning.run_tuning
+python -m experiments.foundation.run_tabpfn_v2
+```
+
 ## Other experiments
 
 The repository also contains standalone scripts for untuned and tuned Logistic
 Regression, decision trees, random forests, XGBoost, CatBoost, LightGBM,
 WOE Logistic Regression, TabPFN v2, and exploratory Qwen few-shot/aLoRA
-experiments. They write their outputs to per-model `reports_*` directories.
+experiments. They write their outputs to per-model `reports_*` directories at
+the repository root.
 The Qwen experiments require additional PyTorch, Transformers, and PEFT
 dependencies and may download model weights; they are not needed to reproduce
 the final validation CSVs above. Generated historical report directories and
@@ -142,11 +186,13 @@ model weights are excluded from Git.
 
 ## Main project files
 
-- `MLE_Project.py` - generate the synthetic input CSV.
-- `model_utils.py` - feature engineering, shared evaluation, and fairness
-  helpers.
-- `credit_risk_validation.py` - scenario generation and equal-approval
+- `main.py` - main CLI entry point.
+- `data/generate_dataset.py` - generate the synthetic input CSV.
+- `common/model_utils.py` - feature engineering, shared evaluation, and
+  fairness helpers.
+- `common/credit_risk_validation.py` - scenario generation and equal-approval
   evaluation.
-- `run_credit_risk_validation.py` - final multi-seed model search, calibration,
-  testing, and CSV report generation.
-- `*_model.py` and `run_*.py` - model definitions and standalone experiments.
+- `experiments/validation/run_credit_risk_validation.py` - final multi-seed
+  model search, calibration, testing, and CSV report generation.
+- `models/` and `experiments/` - algorithms grouped by category and their
+  standalone runners.

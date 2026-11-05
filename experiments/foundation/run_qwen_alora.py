@@ -1,11 +1,9 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
 
-from model_utils import (
+from common.model_utils import (
     DATA_SEED,
     MODEL_SEED,
     TRAIN_TEST_SEED,
@@ -15,11 +13,12 @@ from model_utils import (
     _make_fairness_table,
     add_features,
 )
-from qwen_alora_model import QwenALoRAClassifier
+from common.paths import PROJECT_ROOT
+from models.foundation.qwen_alora_model import QwenALoRAClassifier
 
 
 def main() -> None:
-    project_dir = Path(__file__).resolve().parent
+    project_dir = PROJECT_ROOT
     data = pd.read_csv(project_dir / "loan_applications.csv")
     labeled = data.loc[data["actual_outcome"].isin(["repaid", "defaulted"])].copy()
     y = (labeled["actual_outcome"] == "defaulted").astype(int)

@@ -11,7 +11,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 from sklearn.metrics import average_precision_score
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from qwen_llm_model import QwenFewShotClassifier
+from models.foundation.qwen_llm_model import QwenFewShotClassifier
 
 
 ALORA_INVOCATION_TEXT = "\nALORA_CLASSIFY_LOAN_RISK_7D3A:\n"

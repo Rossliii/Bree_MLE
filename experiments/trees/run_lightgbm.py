@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-import numpy as np
 import pandas as pd
-from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold
+from sklearn.model_selection import RandomizedSearchCV, RepeatedStratifiedKFold
 
-from model_utils import (
+from common.model_utils import (
     DATA_SEED,
     MODEL_SEED,
     TRAIN_TEST_SEED,
@@ -15,14 +13,14 @@ from model_utils import (
     _choose_threshold,
     _collect_metrics,
     _make_fairness_table,
-    add_features,
 )
-from run_tuning import load_splits
-from woe_logistic_regression_model import create_model
+from common.paths import PROJECT_ROOT
+from experiments.tuning.run_tuning import load_splits
+from models.trees.lightgbm_model import create_model
 
 
 def main() -> None:
-    project_dir = Path(__file__).resolve().parent
+    project_dir = PROJECT_ROOT
     x_train, y_train, x_validation, y_validation, x_test, y_test = load_splits(
         project_dir
     )
@@ -31,18 +29,26 @@ def main() -> None:
         n_repeats=2,
         random_state=MODEL_SEED,
     )
-    search = GridSearchCV(
+    search = RandomizedSearchCV(
         estimator=create_model(),
-        param_grid={
-            "woe__n_bins": [3, 5, 8],
-            "classifier__C": [0.01, 0.1, 1.0, 10.0],
-            "classifier__class_weight": ["balanced", None],
+        param_distributions={
+            "classifier__n_estimators": [100, 200, 400],
+            "classifier__learning_rate": [0.02, 0.05, 0.1],
+            "classifier__num_leaves": [7, 15, 31],
+            "classifier__max_depth": [-1, 3, 5],
+            "classifier__min_child_samples": [10, 20, 30],
+            "classifier__reg_lambda": [0.0, 1.0, 5.0],
+            "classifier__class_weight": [None, "balanced"],
+            "classifier__colsample_bytree": [0.8, 1.0],
         },
+        n_iter=12,
         scoring="average_precision",
         cv=cv,
         n_jobs=1,
+        random_state=MODEL_SEED,
         refit=True,
         error_score="raise",
+        return_train_score=False,
     )
     search.fit(x_train, y_train)
     model = search.best_estimator_
@@ -51,7 +57,7 @@ def main() -> None:
     threshold = _choose_threshold(y_validation, validation_probabilities)
     test_probabilities = model.predict_proba(x_test)[:, 1]
     test_predictions = (test_probabilities >= threshold).astype(int)
-    model_name = "Logistic Regression (WOE)"
+    model_name = "LightGBM (tuned)"
 
     metrics_frame = pd.DataFrame(
         [
@@ -74,9 +80,9 @@ def main() -> None:
         ]
     )
 
-    output_dir = project_dir / "reports_woe"
+    output_dir = project_dir / "reports_lightgbm"
     output_dir.mkdir(parents=True, exist_ok=True)
-    metrics_frame.to_csv(output_dir / "woe_logistic_metrics.csv", index=False)
+    metrics_frame.to_csv(output_dir / "lightgbm_metrics.csv", index=False)
     pd.DataFrame(
         [
             {
@@ -91,7 +97,7 @@ def main() -> None:
                 "validation_threshold": threshold,
             }
         ]
-    ).to_csv(output_dir / "woe_logistic_search_summary.csv", index=False)
+    ).to_csv(output_dir / "lightgbm_search_summary.csv", index=False)
 
     data = pd.read_csv(project_dir / "loan_applications.csv")
     labeled = data.loc[data["actual_outcome"].isin(["repaid", "defaulted"])].copy()
@@ -101,7 +107,7 @@ def main() -> None:
         y_test,
         {model_name: test_predictions},
     )
-    fairness.to_csv(output_dir / "woe_logistic_fairness_metrics.csv", index=False)
+    fairness.to_csv(output_dir / "lightgbm_fairness_metrics.csv", index=False)
     pd.DataFrame(
         {
             "applicant_id": test_data["applicant_id"].to_numpy(),
@@ -117,11 +123,12 @@ def main() -> None:
                 "approve",
             ),
         }
-    ).to_csv(output_dir / "woe_logistic_test_predictions.csv", index=False)
+    ).to_csv(output_dir / "lightgbm_test_predictions.csv", index=False)
 
     comparison_paths = [
         project_dir / "reports_catboost" / "model_metrics.csv",
         project_dir / "reports_tuned" / "tuned_model_metrics.csv",
+        project_dir / "reports_woe" / "woe_logistic_metrics.csv",
         project_dir / "reports_tabpfn_v2" / "tabpfn_v2_metrics.csv",
     ]
     comparison_rows: list[pd.DataFrame] = []
@@ -133,6 +140,10 @@ def main() -> None:
         if path.name == "tuned_model_metrics.csv":
             existing_test = existing_test.loc[
                 existing_test["model"] == "Logistic Regression (tuned)"
+            ]
+        elif path.name == "woe_logistic_metrics.csv":
+            existing_test = existing_test.loc[
+                existing_test["model"] == "Logistic Regression (WOE)"
             ]
         elif path.name == "tabpfn_v2_metrics.csv":
             existing_test = existing_test.loc[
@@ -150,8 +161,9 @@ def main() -> None:
     order = {
         "Rule-based baseline": 0,
         "Logistic Regression (tuned)": 1,
-        model_name: 2,
-        "TabPFNv2 (Nature paper)": 3,
+        "Logistic Regression (WOE)": 2,
+        model_name: 3,
+        "TabPFNv2 (Nature paper)": 4,
     }
     comparison["_order"] = comparison["model"].map(order)
     comparison = comparison.sort_values("_order").drop(columns="_order")
@@ -174,7 +186,7 @@ def main() -> None:
             ]
         ].to_string(index=False, float_format=lambda value: f"{value:.3f}")
     )
-    print("\nTest-set comparison, ordered after standard Logistic Regression:")
+    print("\nTest-set comparison:")
     print(
         comparison[
             [
@@ -191,7 +203,7 @@ def main() -> None:
         ].to_string(index=False, float_format=lambda value: f"{value:.3f}")
     )
     print(
-        f"\nWOE reports saved to {output_dir}\n"
+        f"\nLightGBM reports saved to {output_dir}\n"
         f"Seeds: data={DATA_SEED}, train/test={TRAIN_TEST_SEED}, "
         f"train/validation={TRAIN_VALIDATION_SEED}, CV/model={MODEL_SEED}"
     )

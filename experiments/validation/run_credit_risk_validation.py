@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,15 +13,12 @@ from sklearn.model_selection import (
     train_test_split,
 )
 
-from catboost_model import create_model as create_catboost
-from credit_risk_validation import (
+from common.credit_risk_validation import (
     SCENARIOS,
     evaluate_at_approval_rate,
     make_scenario_test_data,
 )
-from lightgbm_model import create_model as create_lightgbm
-from logistic_regression_model import create_model as create_logistic_regression
-from model_utils import (
+from common.model_utils import (
     DATA_SEED,
     MODEL_SEED,
     _choose_threshold,
@@ -31,8 +27,16 @@ from model_utils import (
     add_features,
     generate_dataset,
 )
-from tabpfn_v2_model import create_model as create_tabpfn
-from woe_logistic_regression_model import create_model as create_woe_logistic
+from common.paths import PROJECT_ROOT
+from models.foundation.tabpfn_v2_model import create_model as create_tabpfn
+from models.linear.logistic_regression_model import (
+    create_model as create_logistic_regression,
+)
+from models.linear.woe_logistic_regression_model import (
+    create_model as create_woe_logistic,
+)
+from models.trees.catboost_model import create_model as create_catboost
+from models.trees.lightgbm_model import create_model as create_lightgbm
 
 
 EXPERIMENT_SEEDS = (42, 2025, 2027)
@@ -224,7 +228,7 @@ def _rule_baseline_metrics(
 
 
 def main() -> None:
-    project_dir = Path(__file__).resolve().parent
+    project_dir = PROJECT_ROOT
     output_dir = project_dir / "reports_credit_risk_validation"
     output_dir.mkdir(parents=True, exist_ok=True)
 

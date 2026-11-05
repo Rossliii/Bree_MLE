@@ -1,10 +1,8 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from model_utils import (
+from common.model_utils import (
     DATA_SEED,
     MODEL_SEED,
     TRAIN_TEST_SEED,
@@ -14,11 +12,15 @@ from model_utils import (
     _make_fairness_table,
     add_features,
 )
-from qwen_llm_model import QwenFewShotClassifier
+from common.paths import PROJECT_ROOT
+from models.foundation.tabpfn_v2_model import create_model
+
+
+MODEL_NAME = "TabPFNv2 (Nature paper)"
 
 
 def main() -> None:
-    project_dir = Path(__file__).resolve().parent
+    project_dir = PROJECT_ROOT
     data = pd.read_csv(project_dir / "loan_applications.csv")
     labeled = data.loc[data["actual_outcome"].isin(["repaid", "defaulted"])].copy()
     y = (labeled["actual_outcome"] == "defaulted").astype(int)
@@ -39,56 +41,51 @@ def main() -> None:
         stratify=y_train_validation,
     )
 
-    model = QwenFewShotClassifier(random_state=MODEL_SEED)
+    model = create_model()
     model.fit(x_train, y_train)
-    validation_probabilities = model.predict_proba(
-        x_validation,
-        progress_label="validation",
-    )[:, 1]
+    validation_probabilities = model.predict_proba(x_validation)[:, 1]
     threshold = _choose_threshold(y_validation, validation_probabilities)
-    test_probabilities = model.predict_proba(
-        x_test,
-        progress_label="test",
-    )[:, 1]
+    test_probabilities = model.predict_proba(x_test)[:, 1]
     test_predictions = (test_probabilities >= threshold).astype(int)
 
-    metrics = [
-        _collect_metrics(
-            "Qwen2.5-1.5B (few-shot)",
-            "validation",
-            y_validation,
-            (validation_probabilities >= threshold).astype(int),
-            validation_probabilities,
-            threshold,
-        ),
-        _collect_metrics(
-            "Qwen2.5-1.5B (few-shot)",
-            "test",
-            y_test,
-            test_predictions,
-            test_probabilities,
-            threshold,
-        ),
-    ]
+    metrics_frame = pd.DataFrame(
+        [
+            _collect_metrics(
+                MODEL_NAME,
+                "validation",
+                y_validation,
+                (validation_probabilities >= threshold).astype(int),
+                validation_probabilities,
+                threshold,
+            ),
+            _collect_metrics(
+                MODEL_NAME,
+                "test",
+                y_test,
+                test_predictions,
+                test_probabilities,
+                threshold,
+            ),
+        ]
+    )
 
-    output_dir = project_dir / "reports_qwen"
+    output_dir = project_dir / "reports_tabpfn_v2"
     output_dir.mkdir(parents=True, exist_ok=True)
-    metrics_frame = pd.DataFrame(metrics)
-    metrics_frame.to_csv(output_dir / "qwen_metrics.csv", index=False)
+    metrics_frame.to_csv(output_dir / "tabpfn_v2_metrics.csv", index=False)
     test_data = labeled.loc[x_test.index]
     fairness = _make_fairness_table(
         test_data,
         y_test,
-        {"Qwen2.5-1.5B (few-shot)": test_predictions},
+        {MODEL_NAME: test_predictions},
     )
-    fairness.to_csv(output_dir / "qwen_fairness_metrics.csv", index=False)
+    fairness.to_csv(output_dir / "tabpfn_v2_fairness_metrics.csv", index=False)
 
     predictions = pd.DataFrame(
         {
             "applicant_id": test_data["applicant_id"].to_numpy(),
             "actual_outcome": test_data["actual_outcome"].to_numpy(),
             "employment_status": test_data["employment_status"].to_numpy(),
-            "model": "Qwen2.5-1.5B (few-shot)",
+            "model": MODEL_NAME,
             "default_probability": test_probabilities,
             "threshold": threshold,
             "predicted_default": test_predictions,
@@ -97,17 +94,24 @@ def main() -> None:
             ),
         }
     )
-    predictions.to_csv(output_dir / "qwen_test_predictions.csv", index=False)
+    predictions.to_csv(output_dir / "tabpfn_v2_test_predictions.csv", index=False)
 
-    comparison_path = project_dir / "reports_catboost" / "model_metrics.csv"
-    if comparison_path.exists():
-        existing = pd.read_csv(comparison_path)
-        existing_test = existing.loc[existing["split"] == "test"]
-        comparison = pd.concat(
-            [existing_test, metrics_frame.loc[metrics_frame["split"] == "test"]],
-            ignore_index=True,
-        )
-        comparison.to_csv(output_dir / "test_model_comparison.csv", index=False)
+    for existing_path in (
+        project_dir / "reports_catboost" / "model_metrics.csv",
+        project_dir / "reports_qwen" / "test_model_comparison.csv",
+    ):
+        if existing_path.exists():
+            existing = pd.read_csv(existing_path)
+            existing_test = existing.loc[existing["split"] == "test"]
+            comparison = pd.concat(
+                [existing_test, metrics_frame.loc[metrics_frame["split"] == "test"]],
+                ignore_index=True,
+            ).drop_duplicates(subset=["model", "split"], keep="last")
+            comparison.to_csv(
+                output_dir / "test_model_comparison.csv",
+                index=False,
+            )
+            break
 
     print(
         metrics_frame[
@@ -128,7 +132,7 @@ def main() -> None:
             ]
         ].to_string(index=False, float_format=lambda value: f"{value:.3f}")
     )
-    print(f"\nQwen reports saved to {output_dir}")
+    print(f"\nTabPFNv2 reports saved to {output_dir}")
     print(
         f"Seeds: data={DATA_SEED}, train/test={TRAIN_TEST_SEED}, "
         f"train/validation={TRAIN_VALIDATION_SEED}, model={MODEL_SEED}"

@@ -1,7 +1,7 @@
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
-from model_utils import make_pipeline
+from common.model_utils import make_pipeline
 
 
 def create_model(

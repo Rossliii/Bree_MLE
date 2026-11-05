@@ -1,7 +1,7 @@
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 
-from model_utils import make_pipeline
+from common.model_utils import make_pipeline
 
 
 def create_model(scale_numeric: bool = False) -> Pipeline:

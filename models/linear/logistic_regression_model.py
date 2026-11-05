@@ -1,7 +1,7 @@
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
-from model_utils import make_pipeline
+from common.model_utils import make_pipeline
 
 
 def create_model(scale_numeric: bool = True) -> Pipeline:

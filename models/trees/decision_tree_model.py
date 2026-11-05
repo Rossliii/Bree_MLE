@@ -1,7 +1,7 @@
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 
-from model_utils import make_pipeline
+from common.model_utils import make_pipeline
 
 
 def create_model(scale_numeric: bool = False) -> Pipeline:

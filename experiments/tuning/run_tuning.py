@@ -15,9 +15,7 @@ from sklearn.model_selection import (
     train_test_split,
 )
 
-from catboost_model import create_model as create_catboost
-from logistic_regression_model import create_model as create_logistic_regression
-from model_utils import (
+from common.model_utils import (
     MODEL_SEED,
     TRAIN_TEST_SEED,
     TRAIN_VALIDATION_SEED,
@@ -26,7 +24,12 @@ from model_utils import (
     _make_fairness_table,
     add_features,
 )
-from random_forest_model import create_model as create_random_forest
+from common.paths import PROJECT_ROOT
+from models.linear.logistic_regression_model import (
+    create_model as create_logistic_regression,
+)
+from models.trees.catboost_model import create_model as create_catboost
+from models.trees.random_forest_model import create_model as create_random_forest
 
 
 MODEL_FACTORIES: dict[str, Callable[[], object]] = {
@@ -150,7 +153,7 @@ def evaluate_model(
 
 
 def main() -> None:
-    project_dir = Path(__file__).resolve().parent
+    project_dir = PROJECT_ROOT
     output_dir = project_dir / "reports_tuned"
     output_dir.mkdir(parents=True, exist_ok=True)
     x_train, y_train, x_validation, y_validation, x_test, y_test = load_splits(
