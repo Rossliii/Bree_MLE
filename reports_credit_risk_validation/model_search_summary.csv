@@ -1,0 +1,13 @@
+seed,model,cv_folds,candidate_count,cv_mean_pr_auc,cv_std_pr_auc,best_params
+42,Logistic Regression (tuned),4,8,0.5115710012989043,0.04694520892074608,"{""classifier__C"": 0.1, ""classifier__class_weight"": null}"
+42,Logistic Regression (WOE),4,18,0.5338466777340398,0.04311284619218733,"{""classifier__C"": 1.0, ""classifier__class_weight"": ""balanced"", ""woe__n_bins"": 5}"
+42,CatBoost (tuned),4,5,0.5198241809200939,0.06729181156278242,"{""classifier__depth"": 5, ""classifier__iterations"": 400, ""classifier__l2_leaf_reg"": 7, ""classifier__learning_rate"": 0.03}"
+42,LightGBM (tuned),4,6,0.5352863819278619,0.06119386116195126,"{""classifier__class_weight"": null, ""classifier__colsample_bytree"": 1.0, ""classifier__learning_rate"": 0.02, ""classifier__max_depth"": 3, ""classifier__min_child_samples"": 20, ""classifier__n_estimators"": 400, ""classifier__num_leaves"": 15, ""classifier__reg_lambda"": 5.0}"
+2025,Logistic Regression (tuned),4,8,0.5160653953124147,0.03226933413611413,"{""classifier__C"": 0.01, ""classifier__class_weight"": null}"
+2025,Logistic Regression (WOE),4,18,0.540366090382296,0.022385400679805337,"{""classifier__C"": 1.0, ""classifier__class_weight"": null, ""woe__n_bins"": 5}"
+2025,CatBoost (tuned),4,5,0.5496666194991088,0.026160844910005688,"{""classifier__depth"": 3, ""classifier__iterations"": 250, ""classifier__l2_leaf_reg"": 7, ""classifier__learning_rate"": 0.03}"
+2025,LightGBM (tuned),4,6,0.5141317002896625,0.023818490367302422,"{""classifier__class_weight"": null, ""classifier__colsample_bytree"": 0.8, ""classifier__learning_rate"": 0.02, ""classifier__max_depth"": 3, ""classifier__min_child_samples"": 30, ""classifier__n_estimators"": 400, ""classifier__num_leaves"": 31, ""classifier__reg_lambda"": 1.0}"
+2027,Logistic Regression (tuned),4,8,0.5081319103244442,0.026249472860188992,"{""classifier__C"": 0.1, ""classifier__class_weight"": null}"
+2027,Logistic Regression (WOE),4,18,0.5428574558740432,0.03391133347454368,"{""classifier__C"": 1.0, ""classifier__class_weight"": null, ""woe__n_bins"": 8}"
+2027,CatBoost (tuned),4,5,0.5196539024416231,0.02987491368612453,"{""classifier__depth"": 4, ""classifier__iterations"": 250, ""classifier__l2_leaf_reg"": 10, ""classifier__learning_rate"": 0.06}"
+2027,LightGBM (tuned),4,6,0.5126814483857696,0.02416331175639094,"{""classifier__class_weight"": ""balanced"", ""classifier__colsample_bytree"": 0.8, ""classifier__learning_rate"": 0.1, ""classifier__max_depth"": 5, ""classifier__min_child_samples"": 10, ""classifier__n_estimators"": 100, ""classifier__num_leaves"": 7, ""classifier__reg_lambda"": 1.0}"

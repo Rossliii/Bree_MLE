@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+/WPS Office.lnk
+
+# Historical per-model outputs and downloaded adapter weights.
+/reports/
+/reports_catboost/
+/reports_lightgbm/
+/reports_qwen/
+/reports_qwen_alora/
+/reports_tabpfn_v2/
+/reports_tuned/
+/reports_woe/
+
+# Keep the final experiment's CSV deliverables, not caches or other files.
+/reports_credit_risk_validation/*
+!/reports_credit_risk_validation/*.csv

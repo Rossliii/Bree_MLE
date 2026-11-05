@@ -41,8 +41,11 @@ FEATURE_EXCLUSIONS = {
 }
 
 
-def generate_dataset(n: int = 2000) -> pd.DataFrame:
-    rng = np.random.RandomState(DATA_SEED)
+def generate_dataset(
+    n: int = 2000,
+    random_state: int = DATA_SEED,
+) -> pd.DataFrame:
+    rng = np.random.RandomState(random_state)
     employment = rng.choice(
         ["employed", "self_employed", "unemployed"], n, p=[0.6, 0.3, 0.1]
     )
@@ -416,6 +419,9 @@ def _make_fairness_table(
         mask = groups == group
         group_actual = actual[mask]
         baseline_group_approved = baseline_decisions[mask] == "approved"
+        baseline_predicted_default = ~baseline_group_approved
+        group_defaults = group_actual.to_numpy() == 1
+        group_repaid = ~group_defaults
         rows.append(
             {
                 "model": "Rule-based baseline",
@@ -423,6 +429,35 @@ def _make_fairness_table(
                 "applicant_count": int(mask.sum()),
                 "observed_default_rate": float(group_actual.mean()),
                 "approval_rate": float(baseline_group_approved.mean()),
+                "recall": (
+                    float(
+                        (
+                            baseline_predicted_default.to_numpy()[group_defaults]
+                        ).mean()
+                    )
+                    if group_defaults.any()
+                    else np.nan
+                ),
+                "false_negative_rate": (
+                    float(baseline_group_approved.to_numpy()[group_defaults].mean())
+                    if group_defaults.any()
+                    else np.nan
+                ),
+                "false_positive_rate": (
+                    float(
+                        (
+                            baseline_predicted_default.to_numpy()[group_repaid]
+                        ).mean()
+                    )
+                    if group_repaid.any()
+                    else np.nan
+                ),
+                "good_applicants_rejected": int(
+                    (
+                        baseline_predicted_default.to_numpy()
+                        & group_repaid
+                    ).sum()
+                ),
                 "approved_default_rate": (
                     float(group_actual[baseline_group_approved].mean())
                     if baseline_group_approved.any()
@@ -439,6 +474,10 @@ def _make_fairness_table(
         for model_name, group_predictions in predictions.items():
             group_predictions = group_predictions[mask.to_numpy()]
             group_approved = group_predictions == 0
+            group_predicted_default = ~group_approved
+            actual_values = group_actual.to_numpy()
+            group_defaults = actual_values == 1
+            group_repaid = ~group_defaults
             rows.append(
                 {
                     "model": model_name,
@@ -446,8 +485,26 @@ def _make_fairness_table(
                     "applicant_count": int(mask.sum()),
                     "observed_default_rate": float(group_actual.mean()),
                     "approval_rate": float(group_approved.mean()),
+                    "recall": (
+                        float(group_predicted_default[group_defaults].mean())
+                        if group_defaults.any()
+                        else np.nan
+                    ),
+                    "false_negative_rate": (
+                        float(group_approved[group_defaults].mean())
+                        if group_defaults.any()
+                        else np.nan
+                    ),
+                    "false_positive_rate": (
+                        float(group_predicted_default[group_repaid].mean())
+                        if group_repaid.any()
+                        else np.nan
+                    ),
+                    "good_applicants_rejected": int(
+                        (group_predicted_default & group_repaid).sum()
+                    ),
                     "approved_default_rate": (
-                        float(group_actual.to_numpy()[group_approved].mean())
+                        float(actual_values[group_approved].mean())
                         if group_approved.any()
                         else np.nan
                     ),
