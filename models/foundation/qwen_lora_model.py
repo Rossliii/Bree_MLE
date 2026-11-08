@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from peft import LoraConfig, TaskType, get_peft_model
+from peft import LoraConfig, PeftModel, TaskType, get_peft_model
 from sklearn.metrics import average_precision_score
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
+from common.model_config import QWEN_MODEL_NAME
 from models.foundation.qwen_llm_model import QwenFewShotClassifier
 
 
-ALORA_INVOCATION_TEXT = "\nALORA_CLASSIFY_LOAN_RISK_7D3A:\n"
 SYSTEM_PROMPT = (
     "Classify whether a loan applicant later defaults. Use the supplied "
     "application fields and return exactly one label: 0 means repaid; "
@@ -22,12 +23,12 @@ SYSTEM_PROMPT = (
 )
 
 
-class QwenALoRAClassifier:
-    """Fine-tune a small aLoRA adapter for binary loan outcome classification."""
+class QwenLoRAClassifier:
+    """Fine-tune a LoRA adapter for binary loan outcome classification."""
 
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
+        model_name: str = QWEN_MODEL_NAME,
         rank: int = 4,
         learning_rate: float = 1e-4,
         epochs: int = 2,
@@ -50,15 +51,17 @@ class QwenALoRAClassifier:
                 "role": "user",
                 "content": (
                     f"Application: {QwenFewShotClassifier._format_row(row)}"
-                    f"{ALORA_INVOCATION_TEXT}"
                 ),
             },
         ]
-        return self.tokenizer_.apply_chat_template(
+        tokenized_prompt = self.tokenizer_.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
         )
+        if not isinstance(tokenized_prompt, list):
+            tokenized_prompt = tokenized_prompt["input_ids"]
+        return tokenized_prompt
 
     def _pad_left(self, sequences: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
         lengths = torch.tensor([len(sequence) for sequence in sequences])
@@ -86,6 +89,8 @@ class QwenALoRAClassifier:
                 input_ids, attention_mask = self._pad_left(
                     prompts[start : start + self.batch_size]
                 )
+                input_ids = input_ids.to(self.device_)
+                attention_mask = attention_mask.to(self.device_)
                 if input_ids.shape[1] > self.max_length:
                     raise ValueError(
                         f"Qwen prompt has {input_ids.shape[1]} tokens, exceeding "
@@ -113,31 +118,37 @@ class QwenALoRAClassifier:
         x: pd.DataFrame,
         y: pd.Series,
         validation_data: tuple[pd.DataFrame, pd.Series] | None = None,
-    ) -> QwenALoRAClassifier:
+        resume_adapter_path: str | Path | None = None,
+    ) -> QwenLoRAClassifier:
         labels = np.asarray(y, dtype=np.int64)
         if set(np.unique(labels)) != {0, 1}:
-            raise ValueError("aLoRA classification requires both labels 0 and 1.")
+            raise ValueError("LoRA classification requires both labels 0 and 1.")
         if self.epochs < 1 or self.batch_size < 1 or self.rank < 1:
             raise ValueError("epochs, batch_size, and rank must be positive.")
         if validation_data is not None and set(
             np.unique(np.asarray(validation_data[1], dtype=np.int64))
         ) != {0, 1}:
-            raise ValueError("aLoRA validation data requires both labels 0 and 1.")
+            raise ValueError("LoRA validation data requires both labels 0 and 1.")
+
+        try:
+            from transformers import Qwen3_5ForConditionalGeneration
+        except ImportError as exc:
+            raise ImportError(
+                "Qwen3.5 requires a recent Transformers release. "
+                "Install optional dependencies with "
+                "`python -m pip install -r requirements-llm.txt`."
+            ) from exc
 
         torch.manual_seed(self.random_state)
         torch.set_num_threads(min(torch.get_num_threads(), 8))
         self.classes_ = np.array([0, 1])
+        self.device_ = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.resumed_from_adapter_ = resume_adapter_path is not None
         self.tokenizer_ = AutoTokenizer.from_pretrained(self.model_name)
         self.tokenizer_.padding_side = "left"
         if self.tokenizer_.pad_token_id is None:
             self.tokenizer_.pad_token = self.tokenizer_.eos_token
 
-        invocation_ids = self.tokenizer_.encode(
-            ALORA_INVOCATION_TEXT,
-            add_special_tokens=False,
-        )
-        if not invocation_ids:
-            raise ValueError("The aLoRA invocation text produced no tokens.")
         self.candidate_token_ids_ = [
             self.tokenizer_.encode(label, add_special_tokens=False)
             for label in ("0", "1")
@@ -145,27 +156,41 @@ class QwenALoRAClassifier:
         if any(len(token_ids) != 1 for token_ids in self.candidate_token_ids_):
             raise ValueError("Qwen labels 0 and 1 must each map to one tokenizer token.")
 
-        base_model = AutoModelForCausalLM.from_pretrained(
+        base_model = Qwen3_5ForConditionalGeneration.from_pretrained(
             self.model_name,
-            dtype=torch.bfloat16,
+            dtype=(
+                torch.bfloat16
+                if self.device_.type == "cuda"
+                else torch.float32
+            ),
             low_cpu_mem_usage=True,
         )
-        layer_count = base_model.config.num_hidden_layers
-        base_model.config.use_cache = False
-        self.model_ = get_peft_model(
-            base_model,
-            LoraConfig(
-                task_type=TaskType.CAUSAL_LM,
-                r=self.rank,
-                lora_alpha=2 * self.rank,
-                lora_dropout=0.05,
-                target_modules=["q_proj", "v_proj"],
-                layers_to_transform=list(range(max(0, layer_count - 2), layer_count)),
-                layers_pattern="layers",
-                alora_invocation_tokens=invocation_ids,
-            ),
-        )
-        self.model_.to("cpu")
+        text_config = getattr(base_model.config, "text_config", base_model.config)
+        layer_count = text_config.num_hidden_layers
+        text_config.use_cache = False
+        if resume_adapter_path is None:
+            self.model_ = get_peft_model(
+                base_model,
+                LoraConfig(
+                    task_type=TaskType.CAUSAL_LM,
+                    r=self.rank,
+                    lora_alpha=2 * self.rank,
+                    lora_dropout=0.05,
+                    target_modules=["q_proj", "v_proj"],
+                    layers_to_transform=list(range(max(0, layer_count - 2), layer_count)),
+                    layers_pattern="layers",
+                ),
+            )
+        else:
+            adapter_path = Path(resume_adapter_path)
+            if not adapter_path.is_dir():
+                raise FileNotFoundError(f"LoRA adapter directory not found: {adapter_path}")
+            self.model_ = PeftModel.from_pretrained(
+                base_model,
+                adapter_path,
+                is_trainable=True,
+            )
+        self.model_.to(self.device_)
 
         eos_id = self.tokenizer_.eos_token_id
         sequences: list[list[int]] = []
@@ -192,7 +217,7 @@ class QwenALoRAClassifier:
             parameter for parameter in self.model_.parameters() if parameter.requires_grad
         ]
         if not trainable_parameters:
-            raise RuntimeError("PEFT did not expose any trainable aLoRA parameters.")
+            raise RuntimeError("PEFT did not expose any trainable LoRA parameters.")
         optimizer = torch.optim.AdamW(
             trainable_parameters,
             lr=self.learning_rate,
@@ -202,6 +227,29 @@ class QwenALoRAClassifier:
         self.training_history_: list[dict[str, Any]] = []
         best_state: dict[str, torch.Tensor] | None = None
         best_validation_score = -np.inf
+        if validation_prompts is not None and validation_labels is not None:
+            initial_logits = self._score_token_batches(validation_prompts)
+            initial_score = float(
+                average_precision_score(
+                    validation_labels,
+                    self._positive_probabilities(initial_logits),
+                )
+            )
+            self.training_history_.append(
+                {
+                    "epoch": 0,
+                    "training_loss": float("nan"),
+                    "duration_seconds": 0.0,
+                    "validation_pr_auc": initial_score,
+                    "checkpoint": "resumed_adapter",
+                }
+            )
+            best_validation_score = initial_score
+            best_state = {
+                name: parameter.detach().cpu().clone()
+                for name, parameter in self.model_.named_parameters()
+                if parameter.requires_grad
+            }
 
         for epoch in range(self.epochs):
             self.model_.train()
@@ -212,7 +260,10 @@ class QwenALoRAClassifier:
             for start in range(0, len(order), self.batch_size):
                 indices = order[start : start + self.batch_size]
                 batch_sequences = [sequences[index] for index in indices]
-                input_ids, attention_mask = self._pad_left(batch_sequences)
+                input_ids, attention_mask = (
+                    tensor.to(self.device_)
+                    for tensor in self._pad_left(batch_sequences)
+                )
                 if input_ids.shape[1] > self.max_length:
                     raise ValueError(
                         f"Training batch has {input_ids.shape[1]} tokens, exceeding "
@@ -249,6 +300,7 @@ class QwenALoRAClassifier:
                     average_precision_score(validation_labels, probabilities)
                 )
                 epoch_result["validation_pr_auc"] = validation_score
+                epoch_result["checkpoint"] = "trained"
                 if validation_score > best_validation_score:
                     best_validation_score = validation_score
                     best_state = {
@@ -257,8 +309,9 @@ class QwenALoRAClassifier:
                         if parameter.requires_grad
                     }
             self.training_history_.append(epoch_result)
+            run_label = "LoRA continuation" if self.resumed_from_adapter_ else "LoRA"
             print(
-                f"aLoRA epoch {epoch_result['epoch']}/{self.epochs}: "
+                f"{run_label} epoch {epoch_result['epoch']}/{self.epochs}: "
                 f"loss={epoch_result['training_loss']:.4f}, "
                 f"val_pr_auc={epoch_result.get('validation_pr_auc', float('nan')):.4f}, "
                 f"time={epoch_result['duration_seconds']:.1f}s",

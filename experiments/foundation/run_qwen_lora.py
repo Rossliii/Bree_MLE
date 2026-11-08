@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import torch
+from pathlib import Path
 from sklearn.model_selection import train_test_split
 
 from common.model_utils import (
@@ -13,11 +13,17 @@ from common.model_utils import (
     _make_fairness_table,
     add_features,
 )
+from common.model_config import QWEN_MODEL_NAME
 from common.paths import PROJECT_ROOT
-from models.foundation.qwen_alora_model import QwenALoRAClassifier
+from models.foundation.qwen_lora_model import QwenLoRAClassifier
 
 
-def main() -> None:
+def run(
+    *,
+    epochs: int = 2,
+    resume_adapter_path: Path | None = None,
+    output_dir_name: str = "reports_qwen_lora",
+) -> None:
     project_dir = PROJECT_ROOT
     data = pd.read_csv(project_dir / "loan_applications.csv")
     labeled = data.loc[data["actual_outcome"].isin(["repaid", "defaulted"])].copy()
@@ -39,10 +45,10 @@ def main() -> None:
         stratify=y_train_validation,
     )
 
-    model = QwenALoRAClassifier(
+    model = QwenLoRAClassifier(
         rank=4,
         learning_rate=1e-4,
-        epochs=2,
+        epochs=epochs,
         batch_size=8,
         random_state=MODEL_SEED,
     )
@@ -50,13 +56,18 @@ def main() -> None:
         x_train,
         y_train,
         validation_data=(x_validation, y_validation),
+        resume_adapter_path=resume_adapter_path,
     )
     validation_probabilities = model.predict_proba(x_validation)[:, 1]
     threshold = _choose_threshold(y_validation, validation_probabilities)
     test_probabilities = model.predict_proba(x_test)[:, 1]
     test_predictions = (test_probabilities >= threshold).astype(int)
 
-    model_name = "Qwen2.5-1.5B (aLoRA)"
+    model_name = (
+        "Qwen3.5-2B (LoRA continued)"
+        if resume_adapter_path is not None
+        else "Qwen3.5-2B (LoRA)"
+    )
     metrics_frame = pd.DataFrame(
         [
             _collect_metrics(
@@ -78,14 +89,14 @@ def main() -> None:
         ]
     )
 
-    output_dir = project_dir / "reports_qwen_alora"
+    output_dir = project_dir / output_dir_name
     output_dir.mkdir(parents=True, exist_ok=True)
     adapter_dir = output_dir / "adapter"
     model.model_.save_pretrained(adapter_dir)
     model.tokenizer_.save_pretrained(adapter_dir)
-    metrics_frame.to_csv(output_dir / "qwen_alora_metrics.csv", index=False)
+    metrics_frame.to_csv(output_dir / "qwen_lora_metrics.csv", index=False)
     pd.DataFrame(model.training_history_).to_csv(
-        output_dir / "qwen_alora_training_history.csv",
+        output_dir / "qwen_lora_training_history.csv",
         index=False,
     )
 
@@ -95,14 +106,14 @@ def main() -> None:
         y_test,
         {model_name: test_predictions},
     )
-    fairness.to_csv(output_dir / "qwen_alora_fairness_metrics.csv", index=False)
+    fairness.to_csv(output_dir / "qwen_lora_fairness_metrics.csv", index=False)
 
     predictions = pd.DataFrame(
         {
             "applicant_id": test_data["applicant_id"].to_numpy(),
             "actual_outcome": test_data["actual_outcome"].to_numpy(),
             "employment_status": test_data["employment_status"].to_numpy(),
-            "model": model_name,
+            "model": f"{model_name}; {QWEN_MODEL_NAME}",
             "default_probability": test_probabilities,
             "threshold": threshold,
             "predicted_default": test_predictions,
@@ -111,7 +122,7 @@ def main() -> None:
             ),
         }
     )
-    predictions.to_csv(output_dir / "qwen_alora_test_predictions.csv", index=False)
+    predictions.to_csv(output_dir / "qwen_lora_test_predictions.csv", index=False)
 
     baseline_path = project_dir / "reports_qwen" / "qwen_metrics.csv"
     if baseline_path.exists():
@@ -145,9 +156,9 @@ def main() -> None:
         f"\nReports and adapter saved to {output_dir}\n"
         f"Seeds: data={DATA_SEED}, train/test={TRAIN_TEST_SEED}, "
         f"train/validation={TRAIN_VALIDATION_SEED}, model={MODEL_SEED}\n"
-        f"CPU training only; CUDA available={torch.cuda.is_available()}"
+        f"Training device: {model.device_}"
     )
 
 
 if __name__ == "__main__":
-    main()
+    run()

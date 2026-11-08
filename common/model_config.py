@@ -1,0 +1,1 @@
+QWEN_MODEL_NAME = "Qwen/Qwen3.5-2B"

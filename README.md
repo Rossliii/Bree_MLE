@@ -31,11 +31,15 @@ provides these workflows:
 | `python main.py woe` | Run WOE Logistic Regression |
 | `python main.py lightgbm` | Run LightGBM |
 | `python main.py tabpfn` | Run TabPFN v2 |
-| `python main.py qwen` / `python main.py alora` | Run optional Qwen experiments |
+| `python main.py qwen` / `python main.py lora` | Run Qwen few-shot / fresh LoRA experiments |
+| `python main.py lora-continue` | Continue from the saved LoRA adapter for three epochs |
 
 `generate-data` regenerates `loan_applications.csv`; validation writes CSV
 outputs to `reports_credit_risk_validation/`. The full validation command runs
 repeated model searches and CPU-based TabPFN v2 fitting, so it can take a while.
+The Qwen commands use Qwen3.5-2B (Apache-2.0 model weights); install its
+optional dependencies first with `python -m pip install -r requirements-llm.txt`.
+That model requires a Transformers version with Qwen3.5 architecture support.
 
 The experiment uses random seeds 42, 2025, and 2027. Four-fold stratified
 cross-validation selects configurations for tuned Logistic Regression, WOE
@@ -107,13 +111,38 @@ should not be directly ranked against the multi-seed estimates.
 | LightGBM (tuned) | 0.478 | 0.459 | 0.554 |
 | CatBoost (tuned) | 0.535 | 0.771 | 0.557 |
 | XGBoost | 0.530 | 0.569 | 0.525 |
-| Qwen2.5 1.5B (few-shot) | 0.476 | 0.771 | 0.463 |
-| Qwen2.5 1.5B (aLoRA) | 0.478 | **0.899** | 0.457 |
 | Decision Tree | 0.550 | 0.862 | 0.466 |
 
-The aLoRA run produced the highest recall in that split, with lower precision
-and a substantially lower approval rate (18.2%). This illustrates why recall
-alone is insufficient for comparing credit decisions.
+### Qwen3.5-2B evaluation
+
+Both Qwen3.5 experiments were run on the fixed split described above
+(data=42, train/test=2025, train/validation=2026, model=2027). Thresholds were
+selected on validation data. The table shows held-out test metrics and does
+not represent a multi-seed benchmark.
+
+| Experiment | Model | F1 | Recall | PR-AUC | Approval rate |
+|---|---|---:|---:|---:|---:|
+| Few-shot | Qwen3.5-2B | **0.521** | 0.697 | **0.491** | 50.3% |
+| LoRA | Qwen3.5-2B | **0.526** | 0.642 | **0.511** | 57.3% |
+
+On the same test split, standard LoRA caught 70 of 109 defaults and approved
+211 applicants; 39 approved applicants defaulted. It flagged or denied 87
+good applicants. Compared with Qwen3.5 few-shot, LoRA has slightly higher F1
+(0.526 vs. 0.521) and PR-AUC (0.511 vs. 0.491), lower recall (0.642 vs. 0.697),
+and a higher approval rate (57.3% vs. 50.3%). These are single-split,
+threshold-dependent results. The earlier Qwen3.5 aLoRA result is a different
+adapter method and is not presented as a LoRA result.
+
+The Qwen3.5 LoRA run uses rank 4, learning rate 1e-4, two epochs, and batch
+size 8. `python main.py lora-continue` resumes its saved adapter, trains three
+additional epochs, and writes separate outputs under
+`reports_qwen_lora_continued/`. In this run, continuation validation PR-AUC
+did not exceed the initial adapter's 0.4669, so the initial adapter was kept
+as the best checkpoint and test metrics remained unchanged. Training history
+and predictions are generated under `reports_qwen/`, `reports_qwen_lora/`,
+and `reports_qwen_lora_continued/`; these per-model report directories are
+excluded from Git. Results are one-run estimates on synthetic data, not
+evidence of real-world lending performance.
 
 Expected Loss is not reported because the project has no Loss Given Default
 (LGD) or Exposure at Default (EAD) inputs or assumptions. Fairness outputs
@@ -176,13 +205,16 @@ python -m experiments.foundation.run_tabpfn_v2
 
 The repository also contains standalone scripts for untuned and tuned Logistic
 Regression, decision trees, random forests, XGBoost, CatBoost, LightGBM,
-WOE Logistic Regression, TabPFN v2, and exploratory Qwen few-shot/aLoRA
+WOE Logistic Regression, TabPFN v2, and exploratory Qwen few-shot/LoRA
 experiments. They write their outputs to per-model `reports_*` directories at
 the repository root.
-The Qwen experiments require additional PyTorch, Transformers, and PEFT
-dependencies and may download model weights; they are not needed to reproduce
-the final validation CSVs above. Generated historical report directories and
-model weights are excluded from Git.
+The Qwen experiments may download model weights; they are not needed to
+reproduce the final validation CSVs above. Generated historical report
+directories and model weights are excluded from Git.
+
+The Qwen3.5-2B weights are published under the
+[Apache 2.0 license](https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE).
+This is an open-weight model with a permissive open-source license.
 
 ## Main project files
 

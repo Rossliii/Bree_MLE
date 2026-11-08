@@ -8,6 +8,8 @@ __pycache__/
 /reports_lightgbm/
 /reports_qwen/
 /reports_qwen_alora/
+/reports_qwen_lora/
+/reports_qwen_lora_continued/
 /reports_tabpfn_v2/
 /reports_tuned/
 /reports_woe/

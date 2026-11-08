@@ -12,6 +12,7 @@ from common.model_utils import (
     _make_fairness_table,
     add_features,
 )
+from common.model_config import QWEN_MODEL_NAME
 from common.paths import PROJECT_ROOT
 from models.foundation.qwen_llm_model import QwenFewShotClassifier
 
@@ -53,7 +54,7 @@ def main() -> None:
 
     metrics = [
         _collect_metrics(
-            "Qwen2.5-1.5B (few-shot)",
+            "Qwen3.5-2B (few-shot)",
             "validation",
             y_validation,
             (validation_probabilities >= threshold).astype(int),
@@ -61,7 +62,7 @@ def main() -> None:
             threshold,
         ),
         _collect_metrics(
-            "Qwen2.5-1.5B (few-shot)",
+            "Qwen3.5-2B (few-shot)",
             "test",
             y_test,
             test_predictions,
@@ -78,7 +79,7 @@ def main() -> None:
     fairness = _make_fairness_table(
         test_data,
         y_test,
-        {"Qwen2.5-1.5B (few-shot)": test_predictions},
+        {"Qwen3.5-2B (few-shot)": test_predictions},
     )
     fairness.to_csv(output_dir / "qwen_fairness_metrics.csv", index=False)
 
@@ -87,7 +88,7 @@ def main() -> None:
             "applicant_id": test_data["applicant_id"].to_numpy(),
             "actual_outcome": test_data["actual_outcome"].to_numpy(),
             "employment_status": test_data["employment_status"].to_numpy(),
-            "model": "Qwen2.5-1.5B (few-shot)",
+            "model": f"Qwen3.5-2B (few-shot; {QWEN_MODEL_NAME})",
             "default_probability": test_probabilities,
             "threshold": threshold,
             "predicted_default": test_predictions,

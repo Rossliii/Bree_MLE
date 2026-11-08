@@ -14,7 +14,8 @@ def main() -> None:
         "lightgbm": "experiments.trees.run_lightgbm",
         "tabpfn": "experiments.foundation.run_tabpfn_v2",
         "qwen": "experiments.foundation.run_qwen_llm",
-        "alora": "experiments.foundation.run_qwen_alora",
+        "lora": "experiments.foundation.run_qwen_lora",
+        "lora-continue": "experiments.foundation.run_qwen_lora_continue",
     }
     parser = argparse.ArgumentParser(
         description="Run Bree's synthetic credit-risk modeling workflow."

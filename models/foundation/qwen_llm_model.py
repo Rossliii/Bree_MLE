@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.base import BaseEstimator, ClassifierMixin
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
+
+from common.model_config import QWEN_MODEL_NAME
 
 
 class QwenFewShotClassifier(ClassifierMixin, BaseEstimator):
@@ -12,7 +14,7 @@ class QwenFewShotClassifier(ClassifierMixin, BaseEstimator):
 
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
+        model_name: str = QWEN_MODEL_NAME,
         examples_per_class: int = 3,
         batch_size: int = 8,
         random_state: int = 2027,
@@ -43,6 +45,15 @@ class QwenFewShotClassifier(ClassifierMixin, BaseEstimator):
         if set(labels.unique()) != {0, 1}:
             raise ValueError("Qwen few-shot classification requires both labels 0 and 1.")
 
+        try:
+            from transformers import Qwen3_5ForConditionalGeneration
+        except ImportError as exc:
+            raise ImportError(
+                "Qwen3.5 requires a recent Transformers release. "
+                "Install optional dependencies with "
+                "`python -m pip install -r requirements-llm.txt`."
+            ) from exc
+
         rng = np.random.default_rng(self.random_state)
         self.examples_: list[tuple[str, str]] = []
         for label, outcome in ((0, "Repaid"), (1, "Default")):
@@ -58,12 +69,13 @@ class QwenFewShotClassifier(ClassifierMixin, BaseEstimator):
         if self.tokenizer_.pad_token_id is None:
             self.tokenizer_.pad_token = self.tokenizer_.eos_token
 
-        self.model_ = AutoModelForCausalLM.from_pretrained(
+        self.model_ = Qwen3_5ForConditionalGeneration.from_pretrained(
             self.model_name,
             dtype="auto",
             low_cpu_mem_usage=True,
         )
-        self.model_.to("cpu")
+        self.device_ = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_.to(self.device_)
         self.model_.eval()
         return self
 
@@ -117,7 +129,7 @@ class QwenFewShotClassifier(ClassifierMixin, BaseEstimator):
             padding=True,
             truncation=False,
             return_tensors="pt",
-        )
+        ).to(self.device_)
         if tokenized_prompts["input_ids"].shape[1] > self.max_input_tokens:
             raise ValueError(
                 f"Qwen prompt has {tokenized_prompts['input_ids'].shape[1]} tokens, "
